@@ -1,0 +1,99 @@
+
+
+global proc frustumOuterSelection_main(){
+	if(!`pluginInfo -q -loaded frustumSelection`){
+		loadPlugin frustumSelection;
+	}
+	
+	string $sel[] = `ls -sl -dag -s`;
+	string $tmp;
+	int $proceed = 0;
+	for($tmp in $sel){
+		if(`attributeExists "filmTranslateH" $tmp`){
+			string $sources[] = `listConnections -s 1 ($tmp+".filmTranslateH")`;
+			if( size($sources)>0 && $proceed == 0 ){
+				string $answer = `confirmDialog -title "Warning:" -message "Found filmTranslate attribute be in used on selected camera, which can't be translated into correct frustum selection, proceed anyway?" -button "OK" -button "Cancel" -defaultButton "Cancel" -cancelButton "Cancel" -dismissString "Cancel"`;
+				if($answer == "OK") $proceed = 1;
+				else if ($answer == "Cancel") return;
+			}
+		} else {
+			warning("Please select camera(s)!");
+			return;
+		}
+	}
+	
+	float $offset = `floatFieldGrp -q -v1 frustumOS_ctl_offset`;
+	float $overscanValue = 1;
+	if($offset>0) $overscanValue +=  $offset/100.0;
+	else if($offset<0) $overscanValue *= abs($offset);
+	float $overscan[];
+	// store overscan value and reset to custom
+	for($tmp in $sel){
+		$overscan[size($overscan)] = `getAttr ($tmp+".overscan")`;
+		setAttr ($tmp+".overscan") $overscanValue;
+	}
+	
+	int $radioBtnValue = `radioButtonGrp -q -sl frustumOS_ctl_radioBtn`;
+	int $width = `intFieldGrp -q -v1 frustumOS_ctl_wh`;
+	int $height = `intFieldGrp -q -v2 frustumOS_ctl_wh`;
+	int $invert = `checkBoxGrp -q -v1 frustumOS_ctl_invert`;
+	if( $invert ) $invert = 0;
+	else $invert = 1;
+	string $frustumSel[];
+	switch( $radioBtnValue ){
+		case 1:	$frustumSel = `frustumSelection -vw $width -vh $height -uts 1 -i $invert`;
+				break;
+		case 2:	int $start = `intFieldGrp -q -v1 frustumOS_ctl_framerange`;
+				int $end = `intFieldGrp -q -v2 frustumOS_ctl_framerange`;
+				$frustumSel = `frustumSelection -vw $width -vh $height -sf $start -ef $end -i $invert`;
+				break;
+		case 3:	$frustumSel = `frustumSelection -vw $width -vh $height -i $invert`;
+				break;
+	}
+	
+	// restore overscan
+	int $i = 0;
+	for($tmp in $sel){
+		setAttr ($tmp+".overscan") $overscan[$i];
+		$i++;
+	}
+	
+	select -cl;
+	select $frustumSel;
+}
+
+global proc frustumOuterSelection()
+{
+
+	global float $gFrustumOuterSelection_offset;
+
+	if(!`pluginInfo -q -loaded frustumSelection`){
+		loadPlugin frustumSelection;
+	}
+	
+	if(`windowPref -exists frustumOS_window`) windowPref -e -w 200 -h 50 frustumOS_window;
+	if(`window -exists frustumOS_window`) deleteUI frustumOS_window;
+	window -title "frustum Outer Selection" -iconName "fOS" -width 200 -h 50 -s 1 frustumOS_window;
+	columnLayout -adjustableColumn true;
+		radioButtonGrp -nrb 3 -l1 "Use Time Slider" -l2 "Start/End" -l3 "Current Time" -sl 1 -on2 "intFieldGrp -e -en 1 frustumOS_ctl_framerange" -of2 "intFieldGrp -e -en 0 frustumOS_ctl_framerange" frustumOS_ctl_radioBtn;
+		intFieldGrp -nf 2 -l "Frame Range: Start" -cw 1 100 -v1 1 -el "End" -v2 48 -en 0 frustumOS_ctl_framerange;
+		intFieldGrp -nf 2 -l "Screen Size: Width" -cw 1 100 -v1 2048 -el "Height" -v2 871 frustumOS_ctl_wh;
+		floatFieldGrp -nf 1 -l "Selection Offset" -cw 1 100 -el "%" -v1 $gFrustumOuterSelection_offset -cc "$gFrustumOuterSelection_offset = `floatFieldGrp -q -v1 frustumOS_ctl_offset`" frustumOS_ctl_offset;
+		checkBoxGrp -ncb 1 -l "Invert selection" -v1 0 frustumOS_ctl_invert;
+		text -al "left" -fn "boldLabelFont" -l "Help: selection of multiple cameras is possible.\nfilmTranslate attribute on camera is NOT in effect on selecting, use filmOffset instead.\nPositive offset shrink selection while negative expanding." -ww true;
+		separator -h 10 -st "in";
+		string $form = `formLayout -numberOfDivisions 100`;
+		string $btn1 = `button -l "Select" -c "frustumOuterSelection_main()"`;
+		string $btn2 = `button -l "Close" -c ("deleteUI frustumOS_window")`;
+		
+		formLayout -edit
+			-attachForm		$btn1	"top"	0
+			-attachForm		$btn1	"left"	0
+			-attachPosition	$btn1	"right"	0	50
+			-attachForm		$btn2	"top"	0
+			-attachPosition	$btn2	"left"	0	50
+			-attachForm		$btn2	"right"	0
+		$form;
+	showWindow frustumOS_window;
+}
+
