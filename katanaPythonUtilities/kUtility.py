@@ -272,9 +272,143 @@ def setSelectedLightAtReflectedPosition(normal, face_center, cam_position, \
         # change the center of interest at the face center
         kcf.setParameters({'centerOfInterest':distance_light_to_face}, light_Node)
 
-    
-    
+def selectFilteredSceneGraphByBound(sg_location, \
+        maxHeight=999999, maxWidth=999999, maxDepth=999999):
+    ''' this function can be used to filter out the bounding boxes
+        whose dimension is smaller than the given value '''
+    root_producer = kcf.getRootRroducer()
+    location_producer = root_producer.getProducerByPath(sg_location)
+    locations = []
+    for i in kcf.sg_iteratorByType(location_producer, type_='component', toLeaf=False):
+        height, width, depth = getBound(i)
+        if height < maxHeight and width < maxWidth and depth < maxDepth:
+            locations.append(i.getFullName())
+    if locations:
+        kcf.selectLocations(locations)
+        
+def getBound(sg_location):
+    location_producer = None
+    if isinstance(sg_location, str):
+        root_producer = kcf.getRootRroducer()
+        location_producer = root_producer.getProducerByPath(sg_location)
+    else:
+        location_producer = sg_location
+    bounds = location_producer.getAttribute('bound').getData()
+    width = abs(bounds[1] - bounds[0])
+    height = abs(bounds[3] - bounds[2])
+    depth = abs(bounds[5] - bounds[4])
+    return height, width, depth
 
+def getBounds(location_list=None):
+    if not location_list:
+        location_list = kcf.getSelectedLocations()
+    bounds = []
+    for l in location_list:
+        height, width, depth = getBound(l)
+        bounds.append((height, width, depth))
+    return bounds
 
+def sg_expandToComponent(location, sgv=None, root_location='/root', collapseChildren=True):
+    if not sgv:
+        sgv = kcf.getSceneGraphView()
+    parent_location = os.path.dirname(location)
+    try:
+        if not sgv.isLocationExpanded(root_location, parent_location):
+            sgv.scrollToLocation(root_location, location)
+        if collapseChildren and sgv.isLocationExpanded(root_location, location):
+            sg.setLocationCollapsed(root_location, location)
+    except:
+        print traceback.format_exc()
+
+def getCameraData(cam_location):
+    data = {}
+    root_producer = kcf.getRootProducer()
+    data['producer'] = root_producer.getProducerByPath(cam_location)
+    data['xform'] = data['producer'].getFlattenedGlobalXform()
+    # in katana, fov is vertical angle of view
+    data['fov_vertical'] = data['producer'].getAttribute('geometry.fov').getData()[-1]
+    data['left'] = data['producer'].getAttribute('geometry.left').getData()[-1]
+    data['right'] = data['producer'].getAttribute('geometry.right').getData()[-1]
+    data['bottom'] = data['producer'].getAttribute('geometry.bottom').getData()[-1]
+    data['top'] = data['producer'].getAttribute('geometry.top').getData()[-1]
+    data['ratio'] = (abs(data['left']) + abs(data['right'])) / (abs(data['bottom']) + abs(data['top']))
+    data['fov_horizontal'] = data['fov_vertical'] * data['ratio']
+    data['position'] = [data['xform'][-4], data['xform'][-3], data['xform'][-2]]
+    cam_matrix = km.list_to_matrix( list(data['xform']) )
+    cam_y = km.vector_unit( km.matrix_mul( km.list_to_matrix([0,1,0,0]), cam_matrix )[0][:-1] )
+    cam_z = km.vector_unit( km.matrix_mul( km.list_to_matrix([0,0,1,0]), cam_matrix )[0][:-1] )
+    data['up'] = [cam_y[0], cam_y[1], cam_y[2]]
+    data['forward'] = [-cam_z[0], -cam_z[1], -cam_z[2]]
+    return data
+
+def frustumSelection(location=None, type_='component', fov_extend_h=0, fov_extend_v=0, \
+        cam_location='', inverse_selection=True, animation=False, step=5):
+    ''' return the list of location within the frustum of camera,
+        the returned location will be the type of component by default,
+        but it depends on which type of location holds the bounding box info
+        since we use the bbox to decide if it is in the frustum '''
+    root_producer = kcf.getRootProducer()
+    if not location:
+        location = kcf.getSelectedLocations()
+        if not location:
+            print('Please select a location in the scene graph to proceed!')
+            return []
+    if not isinstance(location, list):
+        location = [location]
+    
+    locations_inside_list = []
+    locations_outside_list = []
+    
+    current_frame = NodegraphAPI.NodegraphGlobals.GetCurrentTime()
+    start_frame = NodegraphAPI.NodegraphGlobals.GetInTime()
+    end_frame = NodegraphAPI.NodegraphGlobals.GetOutTime()
+    frames = range(start_frame, end_frame+1, step)
+    if end_frame not in frames:
+        frames.append(end_frame)
+    if not animation:
+        frames = [current_frame]
+    
+    for f in frames:
+        print('calculating frame %d' % f)
+        NodegraphAPI.NodegraphGlobals.SetCurrentTime(f)
+        cam_data = getCameraDatas(cam_location)
+        if fov_extend_h != 0 or fov_extend_v != 0:
+            cam_data['fov_horizontal'] += fov_extend_h
+            cam_data['fov_vertical'] += fov_extend_v
+            cam_data['ratio'] = cam_data['fov_horizontal'] / cam_data['fov_vertical']
+        frustum = km.Frustum()
+        frustum.setCamInternals(cam_data['fov_vertical'], cam_data['ratio'])
+        frustum.setCamDef(cam_data['position'], cam_data['forward'], cam_data['up'])
+        
+        for l in location:
+            location_producer = root_producer.getProducerByPath(l)
+            for i in kcf.sg_iteratorByType(location_producer, type_=type_, toLeaf=False):
+                aabox = km.AABox( bbox_list=i.getAttribute('bound').getData() )
+                if frustum.boxInFrustum(aabox) == frustum.status['outside']:
+                    locations_outside_list.append(i.getFullName())
+                else:
+                    locations_inside_list.append(i.getFullName())
+    
+    locations_inside_list = list(set(locations_inside_list))
+    locations_outside_list = list(set(locations_outside_list))
+    locations_outside_list = list(set(locations_outside_list).difference(locations_inside_list))
+    
+    if inverse_selection:
+        return locations_outside_list
+    return locations_inside_list
+
+def createFrustumPruneNode(*args, **kargs):
+    prune_list = frustumSelection(*args, **kargs)
+    if not prune_list:
+        print('There is nothing to be added to the prune list, make sure you select the correct scene graph location')
+        return
+    prune = kcf.createNode('Prune')
+    # get the CEL parameter ( parameter is named 'cel' )
+    cel_param = prune.getParameter('cel')
+    # set the value
+    cel_param.setValue('(' + ' '.join(prune_list) + ')', 0)
+    # rename prune node
+    prune.setName('Prune_outOfCameraView')
+    return prune
 
 
