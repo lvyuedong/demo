@@ -16,16 +16,61 @@ from Katana import Nodes3DAPI
 import kMath as km
 reload(km)
 
+def getSceneGraphView():
+    return UI4.App.Tabs.FindTopTab('Scene Graph').getSceneGraphView()
+
+def getNodeGraphView():
+    return UI4.App.Tabs.FindTopTab('Node Graph')._NodegraphPanel__nodegraphWidget
+
+def getCurrentFocuseNode():
+    '''return the current viewed group node'''
+    return getNodeGraphView()._NodegraphWidget__currentFocusNode
+
 def getSelectedLocations():
     # returned data: [('root', 'location'), ...]
     try:
-        location = UI4.App.Tabs.FindTopTab('Scene Graph').getSceneGraphView().getSelectedLocations()
+        location = getSceneGraphView().getSelectedLocations()
     except:
         print 'You should select location in the scene graph.'
         return ''
     if location:
         return [i[1] for i in location]
     return []
+
+def selectLocations(locations_list):
+    if not isinstance(locations_list, list):
+        locations_list = [locations_list]
+    getSceneGraphView().selectLocations(locations_list)
+    
+def selectNode(node):
+    NodegraphAPI.SetNodeSelected(node, True)
+
+def createNode(node_type_string, auto_position=True):
+    ''' create a type of node, and put that node in the center of the current focused group'''
+    # get node graph widget
+    ngw = getNodeGraphView()
+    root = NodegraphAPI.GetRootNode()
+    focused_node = getCurrentFocuseNode()
+    if not focused_node:
+        focused_node = root
+    new_node = NodegraphAPI.CreateNode(node_type_string, focused_node)
+    if auto_position:
+        # view port center position in root node space
+        # returned value lik ((815.5, -279.0, 10000.0), (1.0, 1.0, 1.0))
+        center = NodegraphAPI.GetViewPortPosition(root)
+        # convert to group position
+        pos = ngw.getPointAdjustedToGroupNodeSpace(focused_node, (center[0][0], center[0][1]))
+        # put the node at the position
+        NodegraphAPI.SetNodePosition(new_node, pos)
+        # select this node
+        NodegraphAPI.SetNodeSelected(new_node, True)
+    else:
+        placeNode(new_node)
+    return new_node
+
+def placeNode(node):
+    ''' interactivly place the node in the node graph '''
+    getNodeGraphView().placeNode(node, shouldFloat=True, autoPlaceAllowed=True)
 
 def getSelectedNodes():
     return NodegraphAPI.GetAllSelectedNodes()
@@ -134,6 +179,7 @@ def getWorldXform(locations=[]):
 def findMethods(inst, include=''):
     # to be continue
     output = []
+    inst_name = inst.__name__
     methods = [inst_name+'.'+m for m in eval('dir('+inst_name+')') if not m.startswith('__')]
     for i in methods:
         if include:
@@ -143,6 +189,12 @@ def findMethods(inst, include=''):
         else:
             output.append(i)
     return output
+
+def dir(dir_list, include=''):
+    if include:
+        return [m for m in dir_list if include.lower() in m.lower()]
+    else:
+        return dir_list
 
 def findChildren(node, include='', search_for_name=True):
     # if search_for_name is False, then we try to match the type name
@@ -180,9 +232,30 @@ def findList(l, target=''):
             pass
     print output
 
-def sg_traverse(attribute, value):
-    # TODO
-    pass
+def sg_iteratorByType(parent_producer, type_='component', toLeaf=False):
+    if parent_producer.getType() == type_:
+        yield parent_producer
+        if not toLeaf:
+            return
+    children_iter = parent_producer.iterChildren()
+    for c in children_iter:
+        for i in sg_iteratorByType(c, type_=type_, toLeaf=toLeaf):
+            yield i
+
+def sg_getChildLocations(parent_location, type_='component'):
+    ''' this function return all children under the given location
+        only if the expanded scene graph location is cached '''
+    sgv = getSceneGraphView()
+    root_producer = getRootProducer()
+    children = sgv.getChildLocations(locationPath=parent_location, \
+                    topLevelLocationPath=None, visibleOnly=False, \
+                    allDescendants=True)
+    locations_producers = []
+    for c in children:
+        producer = getLocationProducer(c, root_producer)
+        if producer.getType() == type_:
+            locations_producers.append(producer)
+    return locations_producers
 
 def ng_traverseUp(node, n_type, level=-1):
     '''
