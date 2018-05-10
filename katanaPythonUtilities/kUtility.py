@@ -280,33 +280,54 @@ def selectFilteredSceneGraphByBound(sg_location, \
     location_producer = root_producer.getProducerByPath(sg_location)
     locations = []
     for i in kcf.sg_iteratorByType(location_producer, type_='component', toLeaf=False):
-        height, width, depth = getBound(i)
+        bounds = getBound(i)
+        width = abs(bounds[1] - bounds[0])
+        height = abs(bounds[3] - bounds[2])
+        depth = abs(bounds[5] - bounds[4])
         if height < maxHeight and width < maxWidth and depth < maxDepth:
             locations.append(i.getFullName())
     if locations:
         kcf.selectLocations(locations)
         
 def getBound(sg_location):
+    ''' if there is no bound info on the current location,
+        it will find recursivly the bound in the children location '''
     location_producer = None
     if isinstance(sg_location, str):
         root_producer = kcf.getRootRroducer()
         location_producer = root_producer.getProducerByPath(sg_location)
     else:
         location_producer = sg_location
-    bounds = location_producer.getAttribute('bound').getData()
-    width = abs(bounds[1] - bounds[0])
-    height = abs(bounds[3] - bounds[2])
-    depth = abs(bounds[5] - bounds[4])
-    return height, width, depth
+    bound_attr = location_producer.getAttribute('bound')
+    if not bound_attr:
+        # find the child bounds
+        bounds_collect = []
+        bounds = []
+        for c in location_producer.iterChildren():
+            tmp = getBound(c)
+            if tmp:
+                bounds_collect.append(tmp)
+        # calculate the combined bounds
+        if bounds_collect:
+            bounds = range(6)
+            for i in range(0, 6, 2):
+                bounds[i] = min([b[i] for b in bounds_collect])
+            for i in range(1, 6, 2):
+                bounds[i] = max([b[i] for b in bounds_collect])
+        return bounds
+    return location_producer.getAttribute('bound').getData()
 
 def getBounds(location_list=None):
     if not location_list:
         location_list = kcf.getSelectedLocations()
-    bounds = []
+    bounds_list = []
     for l in location_list:
-        height, width, depth = getBound(l)
-        bounds.append((height, width, depth))
-    return bounds
+        bounds = getBound(l)
+        width = abs(bounds[1] - bounds[0])
+        height = abs(bounds[3] - bounds[2])
+        depth = abs(bounds[5] - bounds[4])
+        bounds_list.append((height, width, depth))
+    return bounds_list
 
 def sg_expandToComponent(location, sgv=None, root_location='/root', collapseChildren=True):
     if not sgv:
