@@ -306,6 +306,8 @@ class Frustum():
         self.tang = None    # tangent of fov
         # width and height of near and far plane
         self.nw, self.nh, self.fw, self.fh = None, None, None, None
+        # center of near and far plane
+        self.nc, self.fc = None, None
         # axis of camera in world space
         self.X, self.Y, self.Z = None, None, None
         
@@ -332,17 +334,17 @@ class Frustum():
         self.Y = vector_unit(u)
         self.Z = vector_unit(cross(self.Y, self.Z))
         # center point of near and far plane
-        nc = p - self.Z * self.nearD
-        fc = p - self.Z * self.farD
+        self.nc = p - self.Z * self.nearD
+        self.fc = p - self.Z * self.farD
         # let's calculate the corners
-        self.ntl = nc + self.Y * self.nh - self.X * self.nw
-        self.ntr = nc + self.Y * self.nh + self.X * self.nw
-        self.nbl = nc - self.Y * self.nh - self.X * self.nw
-        self.nbr = nc - self.Y * self.nh + self.X * self.nw
-        self.ftl = fc + self.Y * self.fh - self.X * self.fw
-        self.ftr = fc + self.Y * self.fh + self.X * self.fw
-        self.fbl = fc - self.Y * self.fh - self.X * self.fw
-        self.fbr = fc - self.Y * self.fh + self.X * self.fw
+        self.ntl = self.nc + self.Y * self.nh - self.X * self.nw
+        self.ntr = self.nc + self.Y * self.nh + self.X * self.nw
+        self.nbl = self.nc - self.Y * self.nh - self.X * self.nw
+        self.nbr = self.nc - self.Y * self.nh + self.X * self.nw
+        self.ftl = self.fc + self.Y * self.fh - self.X * self.fw
+        self.ftr = self.fc + self.Y * self.fh + self.X * self.fw
+        self.fbl = self.fc - self.Y * self.fh - self.X * self.fw
+        self.fbr = self.fc - self.Y * self.fh + self.X * self.fw
         self.planes['top'] = Plane(self.ntr, self.ntl, self.ftl)
         self.planes['bottom'] = Plane(self.nbl, self.nbr, self.fbr)
         self.planes['left'] = Plane(self.ntl, self.nbl, self.fbl)
