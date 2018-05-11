@@ -292,6 +292,8 @@ def selectFilteredSceneGraphByBound(sg_location, \
 def getBound(sg_location):
     ''' if there is no bound info on the current location,
         it will find recursivly the bound in the children location '''
+    if not sg_location:
+        return []
     location_producer = None
     if isinstance(sg_location, str):
         root_producer = kcf.getRootRroducer()
@@ -363,7 +365,8 @@ def getCameraData(cam_location):
     return data
 
 def frustumSelection(location=None, type_='component', fov_extend_h=0, fov_extend_v=0, \
-        cam_location='', inverse_selection=True, animation=False, step=5):
+        cam_location='', inverse_selection=True, animation=False, step=5, \
+        nearD=0.1, farD=99999999, debug=False):
     ''' return the list of location within the frustum of camera,
         the returned location will be the type of component by default,
         but it depends on which type of location holds the bounding box info
@@ -398,13 +401,55 @@ def frustumSelection(location=None, type_='component', fov_extend_h=0, fov_exten
             cam_data['fov_vertical'] += fov_extend_v
             cam_data['ratio'] = cam_data['fov_horizontal'] / cam_data['fov_vertical']
         frustum = km.Frustum()
+        frustum.nearD = nearD
+        frustum.farD = farD
         frustum.setCamInternals(cam_data['fov_vertical'], cam_data['ratio'])
         frustum.setCamDef(cam_data['position'], cam_data['forward'], cam_data['up'])
+        if debug:
+            # put the sphere in the corner of frustum to visually see if we get
+            # the correct frustum shape
+            print(cam_data['ratio'], cam_data['fov_horizontal'], cam_data['fov_vertical'])
+            nodes = kcf.getSelectedNodes()
+            corners = [frustum.ntl, frustum.ntr, frustum.nbl, frustum.nbr, \
+                      frustum.nc, frustum.fc]
+            for i in range(6):
+                if i > len(nodes) - 1:
+                    break
+                kcf.setTransform(nodes[i], translate=list(corners[i]), scale=[10,10,10])
+            return
         
         for l in location:
             location_producer = root_producer.getProducerByPath(l)
             for i in kcf.sg_iteratorByType(location_producer, type_=type_, toLeaf=False):
-                aabox = km.AABox( bbox_list=i.getAttribute('bound').getData() )
+                bounds = getBound(i)
+                if type_ == 'light':
+                    bounds = []
+                    # if the type is mesh light without bbox, or one of the rect, sphere,
+                    # disk light, we use center of point to decide the visibility in frustum
+                    # instead of bbox
+                    light_shader = i.getAttribute('material.prmanLightShader').getData()
+                    if not light_shader:
+                        # light without valid light shader, skip
+                        continue
+                    light_shader = light_shader[0].lower()
+                    if 'mesh' not in light_shader and 'rect' not in light_shader \
+                        and 'sphere' not in light_shader and 'disk' not in light_shader:
+                        continue
+                    if 'mesh' in light_shader:
+                        # if it's mesh light, let's check the source geometry
+                        src = i.getAttribute('geometry.areaLightGeometrySource').getData()
+                        if src:
+                            bounds = getBound(root_producer.getProducerByPath(src[0]))
+                    if not bounds:
+                        # we use center point
+                        world_xform = kcf.getWorldXform(i.getFullName())[0]
+                        center = world_xform[-4:-1]
+                        if frustum.pointInFrustum(center) == frustum.status['outside']:
+                            locations_outside_list.append(i.getFullName())
+                        else:
+                            locations_inside_list.append(i.getFullName())
+                        continue
+                aabox = km.AABox( bbox_list=bounds )
                 if frustum.boxInFrustum(aabox) == frustum.status['outside']:
                     locations_outside_list.append(i.getFullName())
                 else:
