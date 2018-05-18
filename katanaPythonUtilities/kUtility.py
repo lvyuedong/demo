@@ -477,4 +477,46 @@ def createFrustumPruneNode(*args, **kargs):
     prune.setName('Prune_outOfCameraView')
     return prune
 
+def compareHierarchy(src_location='', dst_location='', type_=['subdmesh', 'polygon']):
+    '''compare children of selected two locations. If any child location is identical,
+    this function will return the two locations as source and destination.
+    returned data: [(src1, dst1), (src2, dst2), ...]
+    '''
+    root_producer = kcf.getRootProducer()
+    sgv = kcf.getSceneGraphView()
+    if not src_location or not dst_location:
+        locations = kcf.getSelectedLocations()
+        if not location:
+            print 'Please select source and destination location in scene graph to proceed!'
+            return []
+        if len(locations) < 2:
+            print 'Please select both source and destination location'
+            return []
+        src_location = locations[0]
+        dst_location = locations[1]
+    src_producer = kcf.getLocationProducer(src_location, root_producer)
+    dst_producer = kcf.getLocationProducer(dst_location, root_producer)
+    # get full children hierarchy
+    src_hierarchy = [i.getFullName().replace(src_location, '') for i in \
+                     kcf.sg_iteratorByType(src_producer, type_=type_, toLeaf=False)]
+    dst_hierarchy = [i.getFullName().replace(dst_location, '') for i in \
+                     kcf.sg_iteratorByType(dst_producer, type_=type_, toLeaf=False)]
+    # let's get the common items
+    common_items = [(src_location+i, dst_location+i) for i in \
+                   list(set(src_hierarchy).intersection(dst_hierarchy))]
+    return common_items
+
+def createHierarchyCopyNode(*args, **kargs):
+    hierarchy_list = compareHierarchy(*args, **kargs)
+    hierarchy_node = kcf.createNode('HierarchyCopy')
+    parameter = hierarchy_node.getParameter('copies')
+    for i in hierarchy_list:
+        src_location = i[0]
+        dst_location = i[1]
+        hierarchy_node.AddGroup()
+        index = parameter.getNumChildren() - 1
+        name = parameter.getChildByIndex(index).getName()
+        hierarchy_node.getParameter('copies.'+name+'.sourceLocation').setValue(src_location, 0)
+        hierarchy_node.getParameter('copies.'+name+'.destinationLocations.i0').setValue(dst_location, 0)
+
 
