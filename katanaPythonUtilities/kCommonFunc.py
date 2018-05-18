@@ -233,11 +233,15 @@ def findList(l, target=''):
     print output
 
 def sg_iteratorByType(parent_producer, type_='component', toLeaf=False):
+    '''recursively get the children producers.
+    if type_ is None, then toLeaf will be ignored, and this function
+    will return all the children producers regardless of type.
+    '''
     if not isinstance(type_, list):
         type_ = [type_]
-    if parent_producer.getType() in type_:
+    if not type_ or parent_producer.getType() in type_:
         yield parent_producer
-        if not toLeaf:
+        if type_ and not toLeaf:
             return
     children_iter = parent_producer.iterChildren()
     for c in children_iter:
@@ -251,8 +255,10 @@ def activeLocationCallback(parentLocationPath, children):
 
 def sg_getCachedChildLocations(parent_location, type_=[], toLeaf=False, \
                                scene_graph_viewer=None, root_producer=None):
-    ''' this function return all children under the given location
-        only if the expanded scene graph location is cached '''
+    ''' only cached location will be returned. this function will not expand
+    the scene graph. If type_ is None, then toLeaf will be ignored, and this function
+    will return all the cached children regardless of type.
+    '''
     if not isinstance(type_, list):
         type_ = [type_]
     if not scene_graph_viewer:
