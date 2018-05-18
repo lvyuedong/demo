@@ -233,7 +233,9 @@ def findList(l, target=''):
     print output
 
 def sg_iteratorByType(parent_producer, type_='component', toLeaf=False):
-    if parent_producer.getType() == type_:
+    if not isinstance(type_, list):
+        type_ = [type_]
+    if parent_producer.getType() in type_:
         yield parent_producer
         if not toLeaf:
             return
@@ -241,21 +243,34 @@ def sg_iteratorByType(parent_producer, type_='component', toLeaf=False):
     for c in children_iter:
         for i in sg_iteratorByType(c, type_=type_, toLeaf=toLeaf):
             yield i
+            
+def activeLocationCallback(parentLocationPath, children):
+    for c in children:
+        getSceneGraphView().setLocationActive(os.path.join(parentLocationPath, c))
+    return True
 
-def sg_getChildLocations(parent_location, type_='component'):
+def sg_getCachedChildLocations(parent_location, type_=[], toLeaf=False, \
+                               scene_graph_viewer=None, root_producer=None):
     ''' this function return all children under the given location
         only if the expanded scene graph location is cached '''
-    sgv = getSceneGraphView()
-    root_producer = getRootProducer()
-    children = sgv.getChildLocations(locationPath=parent_location, \
-                    topLevelLocationPath=None, visibleOnly=False, \
-                    allDescendants=True)
-    locations_producers = []
+    if not isinstance(type_, list):
+        type_ = [type_]
+    if not scene_graph_viewer:
+        scene_graph_viewer = getSceneGraphView()
+    if not root_producer:
+        root_producer = getRootProducer()
+    locations = []
+    children = scene_graph_viewer.getSceneGraphChildren(parent_location)
+    if not children:
+        return []
     for c in children:
-        producer = getLocationProducer(c, root_producer)
-        if producer.getType() == type_:
-            locations_producers.append(producer)
-    return locations_producers
+        if not type_ or ( type_ and getLocationProducer(c, root_producer).getType() in type_ ):
+            locations.append(c)
+            if type_ and not toLeaf:
+                continue
+        locations.extend(sg_getCachedChildLocations(os.path.join(parent_location, c), type_, \
+                          scene_graph_viewer, root_producer))
+    return locations
 
 def ng_traverseUp(node, n_type, level=-1):
     '''
