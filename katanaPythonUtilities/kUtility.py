@@ -272,22 +272,32 @@ def setSelectedLightAtReflectedPosition(normal, face_center, cam_position, \
         # change the center of interest at the face center
         kcf.setParameters({'centerOfInterest':distance_light_to_face}, light_Node)
 
-def selectFilteredSceneGraphByBound(sg_location, \
+def selectSceneGraphByBound(location=None, \
         maxHeight=999999, maxWidth=999999, maxDepth=999999):
     ''' this function can be used to filter out the bounding boxes
         whose dimension is smaller than the given value '''
     root_producer = kcf.getRootRroducer()
-    location_producer = root_producer.getProducerByPath(sg_location)
+    if not location:
+        location = kcf.getSelectedLocations()
+        if not location:
+            print 'Please select a location in scene graph to proceed!'
+            return False
+    if not isinstance(location, list):
+        location = [location]
+    
     locations = []
-    for i in kcf.sg_iteratorByType(location_producer, type_='component', toLeaf=False):
-        bounds = getBound(i)
-        width = abs(bounds[1] - bounds[0])
-        height = abs(bounds[3] - bounds[2])
-        depth = abs(bounds[5] - bounds[4])
-        if height < maxHeight and width < maxWidth and depth < maxDepth:
-            locations.append(i.getFullName())
+    for l in location:
+        location_producer = root_producer.getProducerByPath(l)
+        for i in kcf.sg_iteratorByType(location_producer, type_='component', toLeaf=False):
+            bounds = getBound(i)
+            width = abs(bounds[1] - bounds[0])
+            height = abs(bounds[3] - bounds[2])
+            depth = abs(bounds[5] - bounds[4])
+            if height < maxHeight and width < maxWidth and depth < maxDepth:
+                locations.append(i.getFullName())
     if locations:
         kcf.selectLocations(locations)
+    return True
         
 def getBound(sg_location):
     ''' if there is no bound info on the current location,
@@ -364,21 +374,36 @@ def getCameraData(cam_location):
     data['forward'] = [-cam_z[0], -cam_z[1], -cam_z[2]]
     return data
 
-def frustumSelection(location=None, type_='component', fov_extend_h=0, fov_extend_v=0, \
+def filterTypeMap(type_):
+    if 'component' in type_.lower():
+        return 'component'
+    if 'light' in type_.lower():
+        return 'light'
+    
+def nodeTypeMap(type_):
+    if 'prune' in type_.lower():
+        return 'Prune'
+
+def frustumSelectionIterator(location=None, filter_type='component', fov_extend_h=0, fov_extend_v=0, \
         cam_location='', inverse_selection=True, animation=False, step=5, \
         nearD=0.1, farD=99999999, debug=False):
-    ''' return the list of location within the frustum of camera,
-        the returned location will be the type of component by default,
-        but it depends on which type of location holds the bounding box info
-        since we use the bbox to decide if it is in the frustum '''
+    ''' return the list of location within the frustum of camera. The filter_type
+        should be component if the component represents the bounding box.
+        
+        we make this function iterator(generator), so the pyqt progress bar can benefit
+        from the yield statment in order to know the progress of the running function.
+    '''
     root_producer = kcf.getRootProducer()
+    sgv = kcf.getSceneGraphView()
     if not location:
         location = kcf.getSelectedLocations()
         if not location:
-            print('Please select a location in the scene graph to proceed!')
-            return []
+            yield 'Error: Please select a location in the scene graph to proceed!'
+            return
     if not isinstance(location, list):
         location = [location]
+        
+    filter_type = filterTypeMap(filter_type)
     
     locations_inside_list = []
     locations_outside_list = []
@@ -392,8 +417,11 @@ def frustumSelection(location=None, type_='component', fov_extend_h=0, fov_exten
     if not animation:
         frames = [current_frame]
     
+    progress = 0
+    progress_step = 100.0 / len(frames)
+    
     for f in frames:
-        print('calculating frame %d' % f)
+        yield 'frame' + str(f) + '\nGet camera matrix datas...'
         NodegraphAPI.NodegraphGlobals.SetCurrentTime(f)
         cam_data = getCameraDatas(cam_location)
         if fov_extend_h != 0 or fov_extend_v != 0:
@@ -417,10 +445,12 @@ def frustumSelection(location=None, type_='component', fov_extend_h=0, fov_exten
                     break
                 kcf.setTransform(nodes[i], translate=list(corners[i]), scale=[10,10,10])
             return
-        
+        sub_process = 0
+        sub_process_step = progress_step / 100.0
+        yield 'start to iterate scene graph locations...'
         for l in location:
             location_producer = root_producer.getProducerByPath(l)
-            for i in kcf.sg_iteratorByType(location_producer, type_=type_, toLeaf=False):
+            for i in kcf.sg_iteratorByType(location_producer, type_=filter_type, toLeaf=False):
                 bounds = getBound(i)
                 if type_ == 'light':
                     bounds = []
@@ -454,17 +484,35 @@ def frustumSelection(location=None, type_='component', fov_extend_h=0, fov_exten
                     locations_outside_list.append(i.getFullName())
                 else:
                     locations_inside_list.append(i.getFullName())
+                
+                if sub_process < progress_step:
+                    sub_process += sub_process_step
+                    yield math.floor(progress + sub_process)
+                    
+        progress += progress_step
+        yield math.floor(progress)
     
     locations_inside_list = list(set(locations_inside_list))
     locations_outside_list = list(set(locations_outside_list))
     locations_outside_list = list(set(locations_outside_list).difference(locations_inside_list))
     
+    yield 'Completed!'
     if inverse_selection:
-        return locations_outside_list
-    return locations_inside_list
+        yield locations_outside_list
+        return
+    yield locations_inside_list
+    
+def frustumSelection(*args, **kargs):
+    locations_list = []
+    for i in frustumSelectionIterator(*args, **kargs):
+        if isinstance(i, list):
+            locations_list = i
+            break
+    return locations_list
 
-def createFrustumPruneNode(*args, **kargs):
-    prune_list = frustumSelection(*args, **kargs)
+def createFrustumPruneNode(prune_list=None, *args, **kargs):
+    if not prune_list:
+        prune_list = frustumSelection(*args, **kargs)
     if not prune_list:
         print('There is nothing to be added to the prune list, make sure you select the correct scene graph location')
         return
