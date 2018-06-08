@@ -232,20 +232,20 @@ def findList(l, target=''):
             pass
     print output
 
-def sg_iteratorByType(parent_producer, type_='component', toLeaf=False):
+def sg_iteratorByType(parent_producer, type_='component', to_leaf=False):
     '''recursively get the children producers.
-    if type_ is None, then toLeaf will be ignored, and this function
+    if type_ is None, then to_leaf will be ignored, and this function
     will return all the children producers regardless of type.
     '''
     if not isinstance(type_, list):
         type_ = [type_]
     if not type_ or parent_producer.getType() in type_:
         yield parent_producer
-        if type_ and not toLeaf:
+        if type_ and not to_leaf:
             return
     children_iter = parent_producer.iterChildren()
     for c in children_iter:
-        for i in sg_iteratorByType(c, type_=type_, toLeaf=toLeaf):
+        for i in sg_iteratorByType(c, type_=type_, to_leaf=to_leaf):
             yield i
             
 def activeLocationCallback(parentLocationPath, children):
@@ -253,10 +253,10 @@ def activeLocationCallback(parentLocationPath, children):
         getSceneGraphView().setLocationActive(os.path.join(parentLocationPath, c))
     return True
 
-def sg_getCachedChildLocations(parent_location, type_=[], toLeaf=False, \
+def sg_getCachedChildLocations(parent_location, type_=[], to_leaf=False, \
                                scene_graph_viewer=None, root_producer=None):
     ''' only cached location will be returned. this function will not expand
-    the scene graph. If type_ is None, then toLeaf will be ignored, and this function
+    the scene graph. If type_ is None, then to_leaf will be ignored, and this function
     will return all the cached children regardless of type.
     '''
     if not isinstance(type_, list):
@@ -266,13 +266,14 @@ def sg_getCachedChildLocations(parent_location, type_=[], toLeaf=False, \
     if not root_producer:
         root_producer = getRootProducer()
     locations = []
+    #children = scene_graph_viewer.getSceneGraphChildren(parent_location, callback=activeLocationCallback, oneShot=False)
     children = scene_graph_viewer.getSceneGraphChildren(parent_location)
     if not children:
         return []
     for c in children:
         if not type_ or ( type_ and getLocationProducer(c, root_producer).getType() in type_ ):
             locations.append(c)
-            if type_ and not toLeaf:
+            if type_ and not to_leaf:
                 continue
         locations.extend(sg_getCachedChildLocations(os.path.join(parent_location, c), type_, \
                           scene_graph_viewer, root_producer))
@@ -548,3 +549,7 @@ def setTransform(node, translate=None, rotate=None, scale=None, transform_order=
         param_obj = node.getParameter('transform.translate.z')
         param_obj.setUseNodeDefault(False)
         param_obj.setValue(translate[2], time)
+
+def flushCache():
+    import UI4.Util.Caches
+    UI4.Util.Caches.FlushCaches()
