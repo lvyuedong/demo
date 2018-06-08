@@ -273,7 +273,7 @@ def setSelectedLightAtReflectedPosition(normal, face_center, cam_position, \
         kcf.setParameters({'centerOfInterest':distance_light_to_face}, light_Node)
 
 def selectSceneGraphByBound(location=None, \
-        maxHeight=999999, maxWidth=999999, maxDepth=999999):
+        max_height=999999, max_width=999999, max_depth=999999):
     ''' this function can be used to filter out the bounding boxes
         whose dimension is smaller than the given value '''
     root_producer = kcf.getRootRroducer()
@@ -288,12 +288,12 @@ def selectSceneGraphByBound(location=None, \
     locations = []
     for l in location:
         location_producer = root_producer.getProducerByPath(l)
-        for i in kcf.sg_iteratorByType(location_producer, type_='component', toLeaf=False):
+        for i in kcf.sg_iteratorByType(location_producer, type_='component', to_leaf=False):
             bounds = getBound(i)
             width = abs(bounds[1] - bounds[0])
             height = abs(bounds[3] - bounds[2])
             depth = abs(bounds[5] - bounds[4])
-            if height < maxHeight and width < maxWidth and depth < maxDepth:
+            if height < max_height and width < max_width and depth < max_depth:
                 locations.append(i.getFullName())
     if locations:
         kcf.selectLocations(locations)
@@ -341,17 +341,27 @@ def getBounds(location_list=None):
         bounds_list.append((height, width, depth))
     return bounds_list
 
-def sg_expandToComponent(location, sgv=None, root_location='/root', collapseChildren=True):
+def sg_expandToComponent(location, sgv=None, root_location='/root', collapse_children=True):
     if not sgv:
         sgv = kcf.getSceneGraphView()
     parent_location = os.path.dirname(location)
     try:
         if not sgv.isLocationExpanded(root_location, parent_location):
             sgv.scrollToLocation(root_location, location)
-        if collapseChildren and sgv.isLocationExpanded(root_location, location):
+        if collapse_children and sgv.isLocationExpanded(root_location, location):
             sg.setLocationCollapsed(root_location, location)
     except:
         print traceback.format_exc()
+        
+def sg_expandLocation(location, sgv=None, root_location='/root'):
+    if location == '/' or location == '/root':
+        return
+    if not sgv:
+        sgv = kcf.getSceneGraphView()
+    if not sgv.isLocationExpanded(root_location, location):
+        sgv.setLocationExpanded(root_location, location)
+    parent_location = os.path.dirname(location)
+    sg_expandLocation(parent_location, sgv, root_location)
 
 def getCameraData(cam_location):
     data = {}
@@ -379,6 +389,8 @@ def filterTypeMap(type_):
         return 'component'
     if 'light' in type_.lower():
         return 'light'
+    if 'instance' in type_.lower():
+        return 'instance'
     
 def nodeTypeMap(type_):
     if 'prune' in type_.lower():
@@ -450,7 +462,7 @@ def frustumSelectionIterator(location=None, filter_type='component', fov_extend_
         yield 'start to iterate scene graph locations...'
         for l in location:
             location_producer = root_producer.getProducerByPath(l)
-            for i in kcf.sg_iteratorByType(location_producer, type_=filter_type, toLeaf=False):
+            for i in kcf.sg_iteratorByType(location_producer, type_=filter_type, to_leaf=False):
                 bounds = getBound(i)
                 if type_ == 'light':
                     bounds = []
@@ -470,21 +482,26 @@ def frustumSelectionIterator(location=None, filter_type='component', fov_extend_
                         src = i.getAttribute('geometry.areaLightGeometrySource').getData()
                         if src:
                             bounds = getBound(root_producer.getProducerByPath(src[0]))
-                    if not bounds:
-                        # we use center point
-                        world_xform = kcf.getWorldXform(i.getFullName())[0]
-                        center = world_xform[-4:-1]
-                        if frustum.pointInFrustum(center) == frustum.status['outside']:
-                            locations_outside_list.append(i.getFullName())
-                        else:
-                            locations_inside_list.append(i.getFullName())
+                isOutside = False
+                if not bounds:
+                    # if bounding box info is invalid, we try to use xform instead
+                    world_xform = kcf.getWorldXform(i.getFullName())
+                    if not world_xform:
                         continue
-                aabox = km.AABox( bbox_list=bounds )
-                if frustum.boxInFrustum(aabox) == frustum.status['outside']:
+                    world_xform = world_xform[0]
+                    center = world_xform[-4:-1]
+                    if frustum.pointInFrustum(center) == frustum.status['outside']:
+                        isOutside = True
+                else:
+                    aabox = km.AABox( bbox_list=bounds )
+                    if frustum.boxInFrustum(aabox) == frustum.status['outside']:
+                        isOutside = True
+                    
+                if isOutside:
                     locations_outside_list.append(i.getFullName())
                 else:
                     locations_inside_list.append(i.getFullName())
-                
+
                 if sub_process < progress_step:
                     sub_process += sub_process_step
                     yield math.floor(progress + sub_process)
@@ -510,7 +527,7 @@ def frustumSelection(*args, **kargs):
             break
     return locations_list
 
-def createFrustumPruneNode(prune_list=None, *args, **kargs):
+def createFrustumNode(prune_list=None, *args, **kargs):
     if not prune_list:
         prune_list = frustumSelection(*args, **kargs)
     if not prune_list:
@@ -546,9 +563,9 @@ def compareHierarchy(src_location='', dst_location='', type_=['subdmesh', 'polyg
     dst_producer = kcf.getLocationProducer(dst_location, root_producer)
     # get full children hierarchy
     src_hierarchy = [i.getFullName().replace(src_location, '') for i in \
-                     kcf.sg_iteratorByType(src_producer, type_=type_, toLeaf=False)]
+                     kcf.sg_iteratorByType(src_producer, type_=type_, to_leaf=False)]
     dst_hierarchy = [i.getFullName().replace(dst_location, '') for i in \
-                     kcf.sg_iteratorByType(dst_producer, type_=type_, toLeaf=False)]
+                     kcf.sg_iteratorByType(dst_producer, type_=type_, to_leaf=False)]
     # let's get the common items
     common_items = [(src_location+i, dst_location+i) for i in \
                    list(set(src_hierarchy).intersection(dst_hierarchy))]
@@ -567,4 +584,148 @@ def createHierarchyCopyNode(*args, **kargs):
         hierarchy_node.getParameter('copies.'+name+'.sourceLocation').setValue(src_location, 0)
         hierarchy_node.getParameter('copies.'+name+'.destinationLocations.i0').setValue(dst_location, 0)
 
+def findChildLocation(locations='', type_='light', parameters=[], select=True):
+    '''
+    find any child under locations whose type is given type_, and
+    has the given parameter and value pairs. if the value is *, then
+    child will be return if the parameter name matches.
+    
+    attribute example:
+    light or light material lightGroup -> 'material.prmanLightParams.lightGroup'
+    light meshLightGeometry -> 'geometry.areaLightGeometrySource'
+    '''
+    if not locations:
+        locations = kcf.getSelectedLocations()
+        if not locations:
+            print 'Error: Please select a location in scene graph to proceed!'
+            return []
+    if not isinstance(locations, list):
+        locations = [locations]
+        
+    collection = []
+    root_producer = kcf.getRootProducer()
+    for l in locations:
+        location_producer = root_producer.getProducerByPath(l)
+        for c in kcf.sg_iteratorByType(location_producer, type_=type_, to_leaf=True):
+            attr = c.getAttribute(parameters[0])
+            if not attr:
+                continue
+            value = attr.getValue()
+            if parameters[1] == '*' \
+                    or (isinstance(value, str) and value.lower() == parameters[1].lower()) \
+                    or value == parameters[1]:
+                collection.append(c.getFullName))
+        collection = list(set(collection))
+        
+    if select:
+        for c in collection:
+            sg_expandLocation(c)
+        kcf.selectLocations(collection)
+    return collection
 
+def excludeLocationList(node=None, exclude_location_list=[]):
+    '''exclude the given list from the selected node.
+    for example, exclude the given location from the list of prune node'''
+    if not node:
+        node = kcf.getSelectedNodes()
+        if not node:
+            print 'Error: Please select a node in node graph to proceed!'
+            return []
+        node = node[0]
+    if not exclude_location_list:
+        return []
+    cel = node.getParameter('cel')
+    cel_string = cel.getValue(0)
+    cel_string_subtract_difference = ''
+    cel_string_only_difference = ''
+    is_difference = False
+    for i in cel_string:
+        if i == '+' or i == '^':
+            if_difference = False
+            continue
+        if i == '-':
+            is_difference = True
+            continue
+        if is_difference:
+            cel_string_only_difference += i
+            continue
+        cel_string_subtract_difference += i
+        
+    locations = cel_string_subtract_difference.replace('(', ' ').replace(')', ' ').replace('+', ' ').replace('^', ' ').replace('-', ' ').split()
+    locations_exclude = []
+    for l in locations:
+        for e in exclude_location_list:
+            if l in e:
+                locations_exclude.append(l)
+                break
+    locations_exclude = list(set(locations_exclude))
+    if not locations_exclude:
+        return []
+    cel_string += ' - (' + ' '.join(locations_exclude) + ')'
+    cel.setValue('', 0)
+    cel.setValue(cel_string, 0)
+    return locations_exclude
+
+def searchAndReplaceLocationList(node=None, search='', replace=''):
+    '''search the specified keyword in the location list of any node with cel location.
+    if replace is empty, then this method only find the list, otherwise, replace.
+    user should be expected to select some node in nodegraph'''
+    if not node:
+        node = kcf.getSelectedNodes()
+        if not node:
+            print 'Error: Please select a node in node graph to proceed!'
+            return []
+        node = node[0]
+    cel = node.getParameter('cel')
+    cel_string = cel.getValue(0)
+    locations = cel_string.replace('(', ' ').replace(')', ' ').replace('+', ' ').replace('^', ' ').replace('-', ' ').split()
+    locations_filtered = []
+    for l in locations:
+        if search in l:
+            locations_filtered.append(l)
+            
+    if replace:
+        cel.setValue('', 0)
+        cel_string = cel_string.replace(search, replace)
+        cel.setValue(cel_string, 0)
+    return locations_filtered
+
+def getAbsolutePath(current_path, relative_path):
+    tmp = relative_path.split('/')
+    go_upper_count = tmp.count('..')
+    return os.path.join( '/'.join(current_path.split('/')[:-go_upper_count]), \
+                        '/'.join(tmp[go_upper_count:]) )
+
+def findConstraintTargets(locations='', select=True):
+    '''this function will try to iterate all of the children and find the constrain targets,
+    then select those targets'''
+    if not locations:
+        locations = kcf.getSelectedLocations()
+        if not locations:
+            print 'Error: Please select a location in scene graph to proceed!'
+            return []
+    if not isinstance(locations, list):
+        locations = [locations]
+        
+    targets = []
+    root_producer = kcf.getRootProducer()
+    for l in locations:
+        location_producer = root_producer.getProducerByPath(l)
+        for c in kcf.sg_iteratorByType(location_producer):
+            xform = c.getAttribute('xform')
+            if not xform:
+                continue
+            child_list = xform.childList()
+            for attr_name, attr_obj in child_list:
+                t = c.getAttribute('xform.'+attr_name+'.target')
+                if t:
+                    targets.append( getAbsolutePath(c.getFullName(), t.getValue()) )
+    targets = list(set(targets))
+    if select:
+        for c in targets:
+            sg_expandLocation(c)
+        kcf.selectLocations(targets)
+    return targets
+
+
+    
