@@ -327,7 +327,49 @@ def getBound(sg_location):
             for i in range(1, 6, 2):
                 bounds[i] = max([b[i] for b in bounds_collect])
         return bounds
-    return location_producer.getAttribute('bound').getData()
+    local_bound = location_producer.getAttribute('bound').getData()
+    parent_matrix = kcf.getWorldXform(location_producer.getFullName())
+    if not parent_matrix:
+        return local_bound
+    parent_matrix = km.list_to_matrix(parent_matrix[0])
+    if km.is_same_matrix(parent_matrix, km.matrix_identity()):
+        return local_bound
+    # convert local bound to world space
+    # caculate 8 corners of bounding box
+    bmin = [local_bound[0], local_bound[2], local_bound[4]]
+    bmax = [local_bound[1], local_bound[3], local_bound[5]]
+    ftr = [bmax[0], bmax[1], bmax[2]]
+    fbr = [bmax[0], bmin[1], bmax[2]]
+    fbl = [bmin[0], bmin[1], bmax[2]]
+    ftl = [bmin[0], bmax[1], bmax[2]]
+    btr = [bmax[0], bmax[1], bmin[2]]
+    bbr = [bmax[0], bmin[1], bmin[2]]
+    bbl = [bmin[0], bmin[1], bmin[2]]
+    btl = [bmin[0], bmax[1], bmin[2]]
+    # convert to world space
+    ftr = km.matrix_mul( km.list_to_matrix(ftr+[1]), parent_matrix )[0][:-1]
+    fbr = km.matrix_mul( km.list_to_matrix(fbr+[1]), parent_matrix )[0][:-1]
+    fbl = km.matrix_mul( km.list_to_matrix(fbl+[1]), parent_matrix )[0][:-1]
+    ftl = km.matrix_mul( km.list_to_matrix(ftl+[1]), parent_matrix )[0][:-1]
+    btr = km.matrix_mul( km.list_to_matrix(btr+[1]), parent_matrix )[0][:-1]
+    bbr = km.matrix_mul( km.list_to_matrix(bbr+[1]), parent_matrix )[0][:-1]
+    bbl = km.matrix_mul( km.list_to_matrix(bbl+[1]), parent_matrix )[0][:-1]
+    btl = km.matrix_mul( km.list_to_matrix(btl+[1]), parent_matrix )[0][:-1]
+    # recaculate bounding box
+    bmin[0] = min(ftr[0], fbr[0], fbl[0], ftl[0], btr[0], bbr[0], bbl[0], btl[0])
+    bmin[1] = min(ftr[1], fbr[1], fbl[1], ftl[1], btr[1], bbr[1], bbl[1], btl[1])
+    bmin[2] = min(ftr[2], fbr[2], fbl[2], ftl[2], btr[2], bbr[2], bbl[2], btl[2])
+    bmax[0] = max(ftr[0], fbr[0], fbl[0], ftl[0], btr[0], bbr[0], bbl[0], btl[0])
+    bmax[1] = max(ftr[1], fbr[1], fbl[1], ftl[1], btr[1], bbr[1], bbl[1], btl[1])
+    bmax[2] = max(ftr[2], fbr[2], fbl[2], ftl[2], btr[2], bbr[2], bbl[2], btl[2])
+    return [bmin[0], bmax[0], bmin[1], bmax[1], bmin[2], bmax[2]]
+
+def getBoundCenter(sg_location):
+    bounds = getBound(sg_location)
+    center_x = bounds[0] + (bounds[1] - bounds[0])/2.0
+    center_y = bounds[2] + (bounds[3] - bounds[2])/2.0
+    center_z = bounds[4] + (bounds[5] - bounds[4])/2.0
+    return [center_x, center_y, center_z]
 
 def getBounds(location_list=None):
     if not location_list:
